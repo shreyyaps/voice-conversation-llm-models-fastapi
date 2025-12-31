@@ -2,31 +2,18 @@ import os
 import asyncio
 from fastapi import FastAPI, WebSocket
 from dotenv import load_dotenv
+load_dotenv()
 from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
 from deepgram.extensions.types.sockets import ListenV2SocketClientResponse
 
-load_dotenv()
+
+from llm_inference.groq import handle_final_transcript
 
 app = FastAPI()
 
 
-class Colors:
-    GREEN = '\033[92m'    # 0.90-1.00
-    YELLOW = '\033[93m'   # 0.80-0.90
-    ORANGE = '\033[91m'   # 0.70-0.80 (using red as orange isn't standard)
-    RED = '\033[31m'      # <=0.69
-    RESET = '\033[0m'     # Reset to default
-def get_confidence_color(confidence: float) -> str:
-    """Return the appropriate color code based on confidence score"""
-    if confidence >= 0.90:
-        return Colors.GREEN
-    elif confidence >= 0.80:
-        return Colors.YELLOW
-    elif confidence >= 0.70:
-        return Colors.ORANGE
-    else:
-        return Colors.RED
+
 
 @app.websocket("/ws/audio")
 async def audio_ws(ws: WebSocket):
@@ -43,20 +30,39 @@ async def audio_ws(ws: WebSocket):
     ) as connection:
 
         def on_message(message: ListenV2SocketClientResponse) -> None:
-                msg_type = getattr(message, "type", "Unknown")
-                
-                if hasattr(message, 'transcript') and message.transcript:
-                    print(f"🎤 {message.transcript}")
-                    # Show word-level confidence with color coding
-                    if hasattr(message, 'words') and message.words:
-                        colored_words = []
-                        for word in message.words:
-                            color = get_confidence_color(word.confidence)
-                            colored_words.append(f"{color}{word.word}({word.confidence:.2f}){Colors.RESET}")
-                        words_info = " | ".join(colored_words)
-                        print(f"  {words_info}")
-                elif msg_type == "Connected":
-                    print(f" Connected to Deepgram Flux - Ready for audio!")                
+            global last_partial
+
+            msg_type = getattr(message, "type", None)
+
+            if msg_type == "Connected":
+                print("Connected to Deepgram Flux - Ready for audio!")
+                return
+
+            if not hasattr(message, "transcript"):
+                return
+
+            transcript = message.transcript # type: ignore
+            if not transcript:
+                return
+
+            
+            if not message.is_final: # type: ignore
+                if transcript.startswith(last_partial): # type: ignore
+                    new_text = transcript[len(last_partial):] # type: ignore
+                else:
+                    # safety fallback (rare but possible)
+                    new_text = transcript
+
+                print(new_text, end="", flush=True)
+                last_partial = transcript
+                return
+
+            
+            print()  # newline after typing
+            print(f"FINAL: {transcript}")
+            last_partial = ""  # reset for next utterance
+
+            handle_final_transcript(transcript)              
 
 
         connection.on(EventType.OPEN, lambda _: print("Deepgram connected"))
@@ -69,11 +75,9 @@ async def audio_ws(ws: WebSocket):
 
         try:
             while True:
+                # cute step 1 get the mf bytes (thank god to web audio API to send exact format)
                 audio_chunk = await ws.receive_bytes()
-
-                # Debug: confirm audio is actually flowing
-                
-
+                # cute step 2 need to send those bytes to deepgram
                 await connection._send(audio_chunk)
 
         except Exception as e:
