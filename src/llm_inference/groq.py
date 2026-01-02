@@ -1,28 +1,49 @@
-import os
-from typing import Iterator
 
-from groq import Groq
-client = Groq()
+from typing import AsyncIterator
 
-def stream_llama_text(prompt: str) -> Iterator[str]: # type: ignore
-    stream = client.chat.completions.create(
-         model="llama-3.1-70b-versatile",
-        messages=[{"role": "user", "content": prompt}],
+from groq import AsyncGroq
+
+from src.TTS.eleven_labs import async_eleven_labs_bytes_streaming, eleven_labs_bytes_streaming
+client = AsyncGroq()
+
+
+messages = [{"role": "system", "content": "you are a therapist who helps people quit smoking. you name is vina, be supportive, be calm don't be over chatty have normal conversion think like you are speaking not in text don't use (.) fullstop too much use it where ever necessory"}]
+
+async def stream_llama_text(prompt: str, messages: list) -> AsyncIterator[str]:
+    messages.append({"role": "user", "content": prompt})
+
+    stream = await client.chat.completions.create(
+        model="moonshotai/kimi-k2-instruct-0905",
+        messages=messages,
         stream=True,
     )
 
-    for chunk in stream:
+    assistant_text = ""
+
+    async for chunk in stream:
         token = chunk.choices[0].delta.content
         if token:
+            assistant_text += token
             yield token
 
+    
+    messages.append({"role": "assistant", "content": assistant_text})
 
-def handle_final_transcript(text: str):
-    print("AI:", end=" ", flush=True)
+DELIMITERS = ( "?", "!")
 
-    for token in stream_llama_text(text):
+async def handle_final_transcript(text: str, messages: list):
+    print("VINI:", end=" ", flush=True)
+
+    buffer = ""
+
+    async for token in stream_llama_text(text, messages):
         print(token, end="", flush=True)
+        buffer += token
+
+        if buffer.strip().endswith(DELIMITERS):
+            chunk = buffer.strip()
+            await async_eleven_labs_bytes_streaming(chunk)
+            buffer = ""
 
     print("\n")
-
 
