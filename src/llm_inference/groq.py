@@ -3,7 +3,7 @@ from typing import AsyncIterator
 
 from groq import AsyncGroq
 
-from src.TTS.eleven_labs import async_eleven_labs_bytes_streaming, eleven_labs_bytes_streaming
+from src.TTS.eleven_labs import async_eleven_labs_bytes_streaming
 client = AsyncGroq()
 
 
@@ -29,13 +29,11 @@ async def stream_llama_text(prompt: str, messages: list) -> AsyncIterator[str]:
     
     messages.append({"role": "assistant", "content": assistant_text})
 
-DELIMITERS = ( "?", "!")
+DELIMITERS = ("?", "!")
 
-async def handle_final_transcript(text: str, messages: list):
+async def handle_final_transcript(text: str):
     print("VINI:", end=" ", flush=True)
-
     buffer = ""
-
     async for token in stream_llama_text(text, messages):
         print(token, end="", flush=True)
         buffer += token
