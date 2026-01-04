@@ -34,7 +34,7 @@ async def geep_gram_ws(ws):
                         print(f"\nUser: {final_text}")
 
                         asyncio.create_task(
-                            handle_final_transcript(final_text)
+                            handle_final_transcript(ws, final_text)
                         )
 
                     current_turn_text = ""
